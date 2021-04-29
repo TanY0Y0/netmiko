@@ -93,7 +93,7 @@ class YotcBase(CiscoBaseConnection):
         no use exit command to disconnect
         :return:
         """
-        pass
+        self.send_config_set("no command max-lines")
 
 
 class YotcSSH(YotcBase):
