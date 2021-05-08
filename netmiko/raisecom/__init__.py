@@ -1,4 +1,4 @@
-from netmiko.raisecom.raisecom import RaisecomSSH
-from netmiko.raisecom.raisecom import RaisecomTelnet
+from netmiko.raisecom.raisecom_roap import RaisecomRoapSSH
+from netmiko.raisecom.raisecom_roap import RaisecomRoapTelnet
 
-__all__ = ["RaisecomSSH", "RaisecomTelnet"]
+__all__ = ["RaisecomRoapSSH", "RaisecomRoapTelnet"]

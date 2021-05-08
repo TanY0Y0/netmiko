@@ -73,6 +73,8 @@ from netmiko.pluribus import PluribusSSH
 from netmiko.quanta import QuantaMeshSSH
 from netmiko.rad import RadETXSSH
 from netmiko.rad import RadETXTelnet
+from netmiko.raisecom import RaisecomRoapSSH
+from netmiko.raisecom import RaisecomRoapTelnet
 from netmiko.ruckus import RuckusFastironSSH
 from netmiko.ruckus import RuckusFastironTelnet
 from netmiko.ruijie import RuijieOSSSH, RuijieOSTelnet
@@ -84,16 +86,14 @@ from netmiko.ubiquiti import UbiquitiEdgeSSH
 from netmiko.ubiquiti import UbiquitiUnifiSwitchSSH
 from netmiko.vyos import VyOSSSH
 from netmiko.watchguard import WatchguardFirewareSSH
-from netmiko.zte.zte import ZTESSH
-from netmiko.zte.zte import ZTETelnet
 from netmiko.yotc.yotc import YotcSSH
 from netmiko.yotc.yotc import YotcTelnet
 from netmiko.h3c.h3c import H3CSSH
 from netmiko.h3c.h3c import H3CTelnet
-from netmiko.raisecom.raisecom import RaisecomSSH
-from netmiko.raisecom.raisecom import RaisecomTelnet
 from netmiko.yamaha import YamahaSSH
 from netmiko.yamaha import YamahaTelnet
+from netmiko.zte import ZteZxrosSSH
+from netmiko.zte import ZteZxrosTelnet
 
 
 # The keys of this dictionary are the supported device_types
@@ -182,6 +182,7 @@ CLASS_MAPPER_BASE = {
     "pluribus": PluribusSSH,
     "quanta_mesh": QuantaMeshSSH,
     "rad_etx": RadETXSSH,
+    "raisecom_roap": RaisecomRoapSSH,
     "ruckus_fastiron": RuckusFastironSSH,
     "ruijie_os": RuijieOSSSH,
     "sixwind_os": SixwindOSSSH,
@@ -192,10 +193,9 @@ CLASS_MAPPER_BASE = {
     "vyatta_vyos": VyOSSSH,
     "vyos": VyOSSSH,
     "watchguard_fireware": WatchguardFirewareSSH,
-    "zte": ZTESSH,
     "yotc": YotcSSH,
     "h3c": H3CSSH,
-    "raisecom": RaisecomSSH,
+    "zte_zxros": ZteZxrosSSH,
     "yamaha": YamahaSSH,
 }
 
@@ -256,11 +256,11 @@ CLASS_MAPPER["oneaccess_oneos_telnet"] = OneaccessOneOSTelnet
 CLASS_MAPPER["rad_etx_telnet"] = RadETXTelnet
 CLASS_MAPPER["ruckus_fastiron_telnet"] = RuckusFastironTelnet
 CLASS_MAPPER["ruijie_os_telnet"] = RuijieOSTelnet
-CLASS_MAPPER["zte_telnet"] = ZTETelnet
 CLASS_MAPPER["yotc_telnet"] = YotcTelnet
 CLASS_MAPPER["h3c_telnet"] = H3CTelnet
-CLASS_MAPPER["raisecom_telnet"] = RaisecomTelnet
+CLASS_MAPPER["raisecom_telnet"] = RaisecomRoapTelnet
 CLASS_MAPPER["yamaha_telnet"] = YamahaTelnet
+CLASS_MAPPER["zte_zxros_telnet"] = ZteZxrosTelnet
 
 # Add serial drivers
 CLASS_MAPPER["cisco_ios_serial"] = CiscoIosSerial
