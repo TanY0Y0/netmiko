@@ -18,9 +18,11 @@ class PaloAltoPanosBase(BaseConnection):
         Disable paging (the '--more--' prompts).
         Set the base prompt for interaction ('>').
         """
+        self.ansi_escape_codes = True
         self._test_channel_read()
         self.set_base_prompt(delay_factor=20)
         self.disable_paging(command="set cli pager off")
+        self.disable_paging(command="set cli scripting-mode on")
         # Clear the read buffer
         time.sleep(0.3 * self.global_delay_factor)
         self.clear_buffer()
@@ -51,6 +53,7 @@ class PaloAltoPanosBase(BaseConnection):
 
     def commit(
         self,
+        comment=None,
         force=False,
         partial=False,
         device_and_network=False,
@@ -87,6 +90,8 @@ class PaloAltoPanosBase(BaseConnection):
         # Select proper command string based on arguments provided
         command_string = "commit"
         commit_marker = "configuration committed successfully"
+        if comment:
+            command_string += f' description "{comment}"'
         if force:
             command_string += " force"
         if partial:

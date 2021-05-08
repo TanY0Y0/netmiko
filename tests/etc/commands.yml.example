@@ -52,6 +52,7 @@ cisco_s300:
   config_verification: "show run"
   config_file: "cisco_ios_commands.txt"
   save_config_confirm: True
+  save_config_response: ''
 
 cisco_asa:
   version: "show version"
@@ -425,10 +426,28 @@ centec_os:
   save_config_cmd: 'write'
   save_config_response: 'OK'
 
+supermicro_nos:
+  version: "show version"
+  basic: "show ip interface"
+  extended_output: "show version"
+  config:
+    - "logging buffered 110"
+    - "logging buffered 110"
+  config_verification: "show run"
+  save_config_cmd: "write startup-config"
+  save_config_confirm: False
+  save_config_response: '[OK]'
+  support_commit: False
+
 sophos_sfos:
   version: "system diagnostics show version-info"
   basic: "system diagnostics utilities route lookup 172.16.16.16"
   extended_output: "system diagnostics show version-info"
+
+adtran_os
+  version: "show version"
+  basic: "show system-management-evc"
+  extended_output: "show version"
 
 huawei_smartax:
   version: "display version"
@@ -437,3 +456,29 @@ huawei_smartax:
   config:
     - acl 2456
   config_verification: "display current-configuration | include acl 2456"
+
+tplink_jetstream:
+  version: "show system-info"
+  basic: "show interface vlan 1"
+  extended_output: "show running-config all"
+  config:
+    - "no clipaging"
+  config_verification: "show running-config | include clipaging"
+
+tplink_jetstream_telnet:
+  version: "show system-info"
+  basic: "show interface vlan 1"
+  extended_output: "show running-config all"
+  config:
+    - "no clipaging"
+  config_verification: "show running-config | include clipaging"
+
+ubiquiti_edgerouter:
+  version: "show version"
+  basic: "show interfaces switch switch0"
+  extended_output: "show configuration all"
+  config:
+    - "set system coredump enabled true"
+    - "set system coredump enabled false"
+  support_commit: True
+  config_verification: "show system coredump enabled"

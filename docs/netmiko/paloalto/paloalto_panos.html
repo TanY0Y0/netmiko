@@ -42,9 +42,11 @@ class PaloAltoPanosBase(BaseConnection):
         Disable paging (the &#39;--more--&#39; prompts).
         Set the base prompt for interaction (&#39;&gt;&#39;).
         &#34;&#34;&#34;
+        self.ansi_escape_codes = True
         self._test_channel_read()
         self.set_base_prompt(delay_factor=20)
         self.disable_paging(command=&#34;set cli pager off&#34;)
+        self.disable_paging(command=&#34;set cli scripting-mode on&#34;)
         # Clear the read buffer
         time.sleep(0.3 * self.global_delay_factor)
         self.clear_buffer()
@@ -75,6 +77,7 @@ class PaloAltoPanosBase(BaseConnection):
 
     def commit(
         self,
+        comment=None,
         force=False,
         partial=False,
         device_and_network=False,
@@ -111,6 +114,8 @@ class PaloAltoPanosBase(BaseConnection):
         # Select proper command string based on arguments provided
         command_string = &#34;commit&#34;
         commit_marker = &#34;configuration committed successfully&#34;
+        if comment:
+            command_string += f&#39; description &#34;{comment}&#34;&#39;
         if force:
             command_string += &#34; force&#34;
         if partial:
@@ -215,7 +220,7 @@ class PaloAltoPanosTelnet(PaloAltoPanosBase):
 <dl>
 <dt id="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase"><code class="flex name class">
 <span>class <span class="ident">PaloAltoPanosBase</span></span>
-<span>(</span><span>ip='', host='', username='', password=None, secret='', port=None, device_type='', verbose=False, global_delay_factor=1, global_cmd_verify=None, use_keys=False, key_file=None, pkey=None, passphrase=None, allow_agent=False, ssh_strict=False, system_host_keys=False, alt_host_keys=False, alt_key_file='', ssh_config_file=None, timeout=100, session_timeout=60, auth_timeout=None, blocking_timeout=20, banner_timeout=15, keepalive=0, default_enter=None, response_return=None, serial_settings=None, fast_cli=False, session_log=None, session_log_record_writes=False, session_log_file_mode='write', allow_auto_change=False, encoding='ascii', sock=None)</span>
+<span>(</span><span>ip='', host='', username='', password=None, secret='', port=None, device_type='', verbose=False, global_delay_factor=1, global_cmd_verify=None, use_keys=False, key_file=None, pkey=None, passphrase=None, allow_agent=False, ssh_strict=False, system_host_keys=False, alt_host_keys=False, alt_key_file='', ssh_config_file=None, conn_timeout=5, auth_timeout=None, banner_timeout=15, blocking_timeout=20, timeout=100, session_timeout=60, keepalive=0, default_enter=None, response_return=None, serial_settings=None, fast_cli=False, session_log=None, session_log_record_writes=False, session_log_file_mode='write', allow_auto_change=False, encoding='ascii', sock=None, auto_connect=True)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Implement methods for interacting with PaloAlto devices.</p>
@@ -347,6 +352,10 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
             (default: None). Global attribute takes precedence over function `cmd_verify`
             argument. Value of `None` indicates to use function `cmd_verify` argument.
     :type global_cmd_verify: bool|None
+
+    :param auto_connect: Control whether Netmiko automatically establishes the connection as
+            part of the object creation (default: True).
+    :type auto_connect: bool
 </code></pre></section>
 <details class="source">
 <summary>Source code</summary>
@@ -365,9 +374,11 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
         Disable paging (the &#39;--more--&#39; prompts).
         Set the base prompt for interaction (&#39;&gt;&#39;).
         &#34;&#34;&#34;
+        self.ansi_escape_codes = True
         self._test_channel_read()
         self.set_base_prompt(delay_factor=20)
         self.disable_paging(command=&#34;set cli pager off&#34;)
+        self.disable_paging(command=&#34;set cli scripting-mode on&#34;)
         # Clear the read buffer
         time.sleep(0.3 * self.global_delay_factor)
         self.clear_buffer()
@@ -398,6 +409,7 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
 
     def commit(
         self,
+        comment=None,
         force=False,
         partial=False,
         device_and_network=False,
@@ -434,6 +446,8 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
         # Select proper command string based on arguments provided
         command_string = &#34;commit&#34;
         commit_marker = &#34;configuration committed successfully&#34;
+        if comment:
+            command_string += f&#39; description &#34;{comment}&#34;&#39;
         if force:
             command_string += &#34; force&#34;
         if partial:
@@ -574,7 +588,7 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
 </details>
 </dd>
 <dt id="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.commit"><code class="name flex">
-<span>def <span class="ident">commit</span></span>(<span>self, force=False, partial=False, device_and_network=False, policy_and_objects=False, vsys='', no_vsys=False, delay_factor=0.1)</span>
+<span>def <span class="ident">commit</span></span>(<span>self, comment=None, force=False, partial=False, device_and_network=False, policy_and_objects=False, vsys='', no_vsys=False, delay_factor=0.1)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Commit the candidate configuration.</p>
@@ -590,6 +604,7 @@ Exception</p></section>
 <summary>Source code</summary>
 <pre><code class="python">def commit(
     self,
+    comment=None,
     force=False,
     partial=False,
     device_and_network=False,
@@ -626,6 +641,8 @@ Exception</p></section>
     # Select proper command string based on arguments provided
     command_string = &#34;commit&#34;
     commit_marker = &#34;configuration committed successfully&#34;
+    if comment:
+        command_string += f&#39; description &#34;{comment}&#34;&#39;
     if force:
         command_string += &#34; force&#34;
     if partial:
@@ -744,9 +761,11 @@ Set the base prompt for interaction ('&gt;').</p></section>
     Disable paging (the &#39;--more--&#39; prompts).
     Set the base prompt for interaction (&#39;&gt;&#39;).
     &#34;&#34;&#34;
+    self.ansi_escape_codes = True
     self._test_channel_read()
     self.set_base_prompt(delay_factor=20)
     self.disable_paging(command=&#34;set cli pager off&#34;)
+    self.disable_paging(command=&#34;set cli scripting-mode on&#34;)
     # Clear the read buffer
     time.sleep(0.3 * self.global_delay_factor)
     self.clear_buffer()</code></pre>
@@ -834,6 +853,7 @@ Set the base prompt for interaction ('&gt;').</p></section>
 <li><code><a title="netmiko.base_connection.BaseConnection.read_until_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_pattern">read_until_pattern</a></code></li>
 <li><code><a title="netmiko.base_connection.BaseConnection.read_until_prompt" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt">read_until_prompt</a></code></li>
 <li><code><a title="netmiko.base_connection.BaseConnection.read_until_prompt_or_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt_or_pattern">read_until_prompt_or_pattern</a></code></li>
+<li><code><a title="netmiko.base_connection.BaseConnection.run_ttp" href="../base_connection.html#netmiko.base_connection.BaseConnection.run_ttp">run_ttp</a></code></li>
 <li><code><a title="netmiko.base_connection.BaseConnection.save_config" href="../base_connection.html#netmiko.base_connection.BaseConnection.save_config">save_config</a></code></li>
 <li><code><a title="netmiko.base_connection.BaseConnection.select_delay_factor" href="../base_connection.html#netmiko.base_connection.BaseConnection.select_delay_factor">select_delay_factor</a></code></li>
 <li><code><a title="netmiko.base_connection.BaseConnection.send_command_timing" href="../base_connection.html#netmiko.base_connection.BaseConnection.send_command_timing">send_command_timing</a></code></li>
@@ -852,7 +872,7 @@ Set the base prompt for interaction ('&gt;').</p></section>
 </dd>
 <dt id="netmiko.paloalto.paloalto_panos.PaloAltoPanosSSH"><code class="flex name class">
 <span>class <span class="ident">PaloAltoPanosSSH</span></span>
-<span>(</span><span>ip='', host='', username='', password=None, secret='', port=None, device_type='', verbose=False, global_delay_factor=1, global_cmd_verify=None, use_keys=False, key_file=None, pkey=None, passphrase=None, allow_agent=False, ssh_strict=False, system_host_keys=False, alt_host_keys=False, alt_key_file='', ssh_config_file=None, timeout=100, session_timeout=60, auth_timeout=None, blocking_timeout=20, banner_timeout=15, keepalive=0, default_enter=None, response_return=None, serial_settings=None, fast_cli=False, session_log=None, session_log_record_writes=False, session_log_file_mode='write', allow_auto_change=False, encoding='ascii', sock=None)</span>
+<span>(</span><span>ip='', host='', username='', password=None, secret='', port=None, device_type='', verbose=False, global_delay_factor=1, global_cmd_verify=None, use_keys=False, key_file=None, pkey=None, passphrase=None, allow_agent=False, ssh_strict=False, system_host_keys=False, alt_host_keys=False, alt_key_file='', ssh_config_file=None, conn_timeout=5, auth_timeout=None, banner_timeout=15, blocking_timeout=20, timeout=100, session_timeout=60, keepalive=0, default_enter=None, response_return=None, serial_settings=None, fast_cli=False, session_log=None, session_log_record_writes=False, session_log_file_mode='write', allow_auto_change=False, encoding='ascii', sock=None, auto_connect=True)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Implement methods for interacting with PaloAlto devices.</p>
@@ -984,6 +1004,10 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
             (default: None). Global attribute takes precedence over function `cmd_verify`
             argument. Value of `None` indicates to use function `cmd_verify` argument.
     :type global_cmd_verify: bool|None
+
+    :param auto_connect: Control whether Netmiko automatically establishes the connection as
+            part of the object creation (default: True).
+    :type auto_connect: bool
 </code></pre></section>
 <details class="source">
 <summary>Source code</summary>
@@ -1022,6 +1046,7 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.read_until_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_pattern">read_until_pattern</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.read_until_prompt" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt">read_until_prompt</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.read_until_prompt_or_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt_or_pattern">read_until_prompt_or_pattern</a></code></li>
+<li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.run_ttp" href="../base_connection.html#netmiko.base_connection.BaseConnection.run_ttp">run_ttp</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.save_config" href="../base_connection.html#netmiko.base_connection.BaseConnection.save_config">save_config</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.select_delay_factor" href="../base_connection.html#netmiko.base_connection.BaseConnection.select_delay_factor">select_delay_factor</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.send_command" href="#netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.send_command">send_command</a></code></li>
@@ -1046,7 +1071,7 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
 </dd>
 <dt id="netmiko.paloalto.paloalto_panos.PaloAltoPanosTelnet"><code class="flex name class">
 <span>class <span class="ident">PaloAltoPanosTelnet</span></span>
-<span>(</span><span>ip='', host='', username='', password=None, secret='', port=None, device_type='', verbose=False, global_delay_factor=1, global_cmd_verify=None, use_keys=False, key_file=None, pkey=None, passphrase=None, allow_agent=False, ssh_strict=False, system_host_keys=False, alt_host_keys=False, alt_key_file='', ssh_config_file=None, timeout=100, session_timeout=60, auth_timeout=None, blocking_timeout=20, banner_timeout=15, keepalive=0, default_enter=None, response_return=None, serial_settings=None, fast_cli=False, session_log=None, session_log_record_writes=False, session_log_file_mode='write', allow_auto_change=False, encoding='ascii', sock=None)</span>
+<span>(</span><span>ip='', host='', username='', password=None, secret='', port=None, device_type='', verbose=False, global_delay_factor=1, global_cmd_verify=None, use_keys=False, key_file=None, pkey=None, passphrase=None, allow_agent=False, ssh_strict=False, system_host_keys=False, alt_host_keys=False, alt_key_file='', ssh_config_file=None, conn_timeout=5, auth_timeout=None, banner_timeout=15, blocking_timeout=20, timeout=100, session_timeout=60, keepalive=0, default_enter=None, response_return=None, serial_settings=None, fast_cli=False, session_log=None, session_log_record_writes=False, session_log_file_mode='write', allow_auto_change=False, encoding='ascii', sock=None, auto_connect=True)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Implement methods for interacting with PaloAlto devices.</p>
@@ -1178,6 +1203,10 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
             (default: None). Global attribute takes precedence over function `cmd_verify`
             argument. Value of `None` indicates to use function `cmd_verify` argument.
     :type global_cmd_verify: bool|None
+
+    :param auto_connect: Control whether Netmiko automatically establishes the connection as
+            part of the object creation (default: True).
+    :type auto_connect: bool
 </code></pre></section>
 <details class="source">
 <summary>Source code</summary>
@@ -1216,6 +1245,7 @@ Overrides several methods for PaloAlto-specific compatibility.</p>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.read_until_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_pattern">read_until_pattern</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.read_until_prompt" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt">read_until_prompt</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.read_until_prompt_or_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt_or_pattern">read_until_prompt_or_pattern</a></code></li>
+<li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.run_ttp" href="../base_connection.html#netmiko.base_connection.BaseConnection.run_ttp">run_ttp</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.save_config" href="../base_connection.html#netmiko.base_connection.BaseConnection.save_config">save_config</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.select_delay_factor" href="../base_connection.html#netmiko.base_connection.BaseConnection.select_delay_factor">select_delay_factor</a></code></li>
 <li><code><a title="netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.send_command" href="#netmiko.paloalto.paloalto_panos.PaloAltoPanosBase.send_command">send_command</a></code></li>

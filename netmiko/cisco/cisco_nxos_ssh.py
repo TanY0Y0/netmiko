@@ -1,31 +1,67 @@
 import re
-import time
 import os
 from netmiko.cisco_base_connection import CiscoSSHConnection
 from netmiko.cisco_base_connection import CiscoFileTransfer
 
 
 class CiscoNxosSSH(CiscoSSHConnection):
+    def __init__(self, *args, **kwargs):
+        # Cisco NX-OS defaults to fast_cli=True and legacy_mode=False
+        kwargs.setdefault("fast_cli", True)
+        kwargs.setdefault("_legacy_mode", False)
+        return super().__init__(*args, **kwargs)
+
     def session_preparation(self):
         """Prepare the session after the connection has been established."""
-        self._test_channel_read(pattern=r"[>#]")
         self.ansi_escape_codes = True
-        self.set_base_prompt()
+        # NX-OS has an issue where it echoes the command even though it hasn't returned the prompt
+        self._test_channel_read(pattern=r"[>#]")
+        self.set_terminal_width(
+            command="terminal width 511", pattern=r"terminal width 511"
+        )
         self.disable_paging()
-        self.set_terminal_width(command="terminal width 511")
-        # Clear the read buffer
-        time.sleep(0.3 * self.global_delay_factor)
-        self.clear_buffer()
+        self.set_base_prompt()
 
     def normalize_linefeeds(self, a_string):
         """Convert '\r\n' or '\r\r\n' to '\n, and remove extra '\r's in the text."""
-        newline = re.compile(r"(\r\r\n|\r\n)")
+        newline = re.compile(r"(\r\r\n\r|\r\r\n|\r\n)")
         # NX-OS fix for incorrect MD5 on 9K (due to strange <enter> patterns on NX-OS)
         return newline.sub(self.RESPONSE_RETURN, a_string).replace("\r", "\n")
 
     def check_config_mode(self, check_string=")#", pattern="#"):
         """Checks if the device is in configuration mode or not."""
         return super().check_config_mode(check_string=check_string, pattern=pattern)
+
+    def save_config(
+        self,
+        cmd="copy running-config startup-config",
+        confirm=False,
+        confirm_response="",
+    ):
+        self.enable()
+
+        if confirm:
+            output = self.send_command_timing(
+                command_string=cmd, strip_prompt=False, strip_command=False
+            )
+            if confirm_response:
+                output += self.send_command_timing(
+                    confirm_response, strip_prompt=False, strip_command=False
+                )
+            else:
+                # Send enter by default
+                output += self.send_command_timing(
+                    self.RETURN, strip_prompt=False, strip_command=False
+                )
+        else:
+            # NX-OS is very slow on save_config ensure it waits long enough.
+            output = self.send_command(
+                command_string=cmd,
+                strip_prompt=False,
+                strip_command=False,
+                max_loops=5000,
+            )
+        return output
 
 
 class CiscoNxosFileTransfer(CiscoFileTransfer):
@@ -39,6 +75,8 @@ class CiscoNxosFileTransfer(CiscoFileTransfer):
         file_system="bootflash:",
         direction="put",
         socket_timeout=10.0,
+        progress=None,
+        progress4=None,
     ):
         self.ssh_ctl_chan = ssh_conn
         self.source_file = source_file
@@ -60,6 +98,8 @@ class CiscoNxosFileTransfer(CiscoFileTransfer):
             raise ValueError("Invalid direction specified")
 
         self.socket_timeout = socket_timeout
+        self.progress = progress
+        self.progress4 = progress4
 
     def check_file_exists(self, remote_cmd=""):
         """Check if the dest_file already exists on the file system (return boolean)."""

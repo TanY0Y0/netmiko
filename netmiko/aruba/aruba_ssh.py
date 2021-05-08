@@ -1,6 +1,10 @@
-"""Aruba OS support"""
+"""
+Aruba OS support.
+
+For use with Aruba OS Controllers.
+
+"""
 import time
-import re
 from netmiko.cisco_base_connection import CiscoSSHConnection
 
 
@@ -17,6 +21,9 @@ class ArubaSSH(CiscoSSHConnection):
 
     def session_preparation(self):
         """Aruba OS requires enable mode to disable paging."""
+        # Aruba switches output ansi codes
+        self.ansi_escape_codes = True
+
         delay_factor = self.select_delay_factor(delay_factor=0)
         time.sleep(1 * delay_factor)
         self._test_channel_read()
@@ -33,8 +40,6 @@ class ArubaSSH(CiscoSSHConnection):
 
         Aruba uses "(<controller name>) (config) #" as config prompt
         """
-        if not pattern:
-            pattern = re.escape(self.base_prompt[:16])
         return super().check_config_mode(check_string=check_string, pattern=pattern)
 
     def config_mode(self, config_command="configure term", pattern=""):

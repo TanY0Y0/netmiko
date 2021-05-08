@@ -10,6 +10,12 @@ from netmiko.base_connection import BaseConnection
 class CiscoWlcSSH(BaseConnection):
     """Netmiko Cisco WLC support."""
 
+    def __init__(self, *args, **kwargs):
+        # WLC/AireOS has an issue where you can get "No Existing Session" with
+        # the default conn_timeout (so increase conn_timeout to 10-seconds).
+        kwargs.setdefault("conn_timeout", 10)
+        return super().__init__(*args, **kwargs)
+
     def special_login_handler(self, delay_factor=1):
         """WLC presents with the following on login (in certain OS versions)
 
@@ -84,6 +90,23 @@ class CiscoWlcSSH(BaseConnection):
                     else:
                         not_done = False
 
+        strip_prompt = kwargs.get("strip_prompt", True)
+        if strip_prompt:
+            # Had to strip trailing prompt twice.
+            output = self.strip_prompt(output)
+            output = self.strip_prompt(output)
+        return output
+
+    def send_command_w_yes(self, *args, **kwargs):
+        """
+        For 'show interface summary' Cisco WLC adds a
+        'Would you like to display the next 15 entries?' message
+        Even though pagination is disabled
+        Arguments are the same as send_command_timing() method
+        """
+        output = self.send_command_timing(*args, **kwargs)
+        if "(y/n)" in output:
+            output += self.send_command_timing("y")
         strip_prompt = kwargs.get("strip_prompt", True)
         if strip_prompt:
             # Had to strip trailing prompt twice.
