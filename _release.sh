@@ -6,7 +6,7 @@ echo
 VERSION=`cat netmiko/__init__.py | grep version | sed "s/^__version__ = \"//"`
 VERSION=`echo $VERSION | sed "s/\"$//"`
 PACKAGE=`echo 'netmiko-'$VERSION'.tar.gz'`
-WHL_PACKAGE=`echo 'netmiko-'$VERSION'-py2.py3-none-any.whl'`
+WHL_PACKAGE=`echo 'netmiko-'$VERSION'-py3-none-any.whl'`
 GLOB_PACKAGE=`echo 'netmiko-'$VERSION'*'`
 DIR_PACKAGE=`echo './dist/'$PACKAGE`
 DIR_WHL_PACKAGE=`echo './dist/'$WHL_PACKAGE`
@@ -157,3 +157,8 @@ else
     TEST_VERSION=`python -c "import netmiko; print(netmiko.__version__)"`
     echo
 fi
+
+# FIX add a test for the entry points i.e. when loaded into netmiko_packaging do
+# netmiko-grep --help
+# netmiko-show --help
+# netmiko-cfg --help

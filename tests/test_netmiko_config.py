@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import pytest
 
 
 def test_ssh_connect(net_connect, commands, expected_responses):
@@ -31,15 +32,16 @@ def test_config_mode(net_connect, commands, expected_responses):
     if net_connect.config_mode() != "":
         assert net_connect.check_config_mode() is True
     else:
-        assert True
+        pytest.skip("Platform doesn't support config mode.")
 
 
 def test_exit_config_mode(net_connect, commands, expected_responses):
-    """
-    Test exit config mode
-    """
-    net_connect.exit_config_mode()
-    assert net_connect.check_config_mode() is False
+    """Test exit config mode."""
+    if net_connect._config_mode:
+        net_connect.exit_config_mode()
+        assert net_connect.check_config_mode() is False
+    else:
+        pytest.skip("Platform doesn't support config mode.")
 
 
 def test_config_set(net_connect, commands, expected_responses):
@@ -80,6 +82,19 @@ def test_config_set_longcommand(net_connect, commands, expected_responses):
     assert True
 
 
+def test_config_hostname(net_connect, commands, expected_responses):
+    hostname = "test-netmiko1"
+    command = f"hostname {hostname}"
+    if "arista" in net_connect.device_type:
+        current_hostname = net_connect.find_prompt()[:-1]
+        net_connect.send_config_set(command)
+        new_hostname = net_connect.find_prompt()
+        assert hostname in new_hostname
+        # Reset prompt back to original value
+        net_connect.set_base_prompt()
+        net_connect.send_config_set(f"hostname {current_hostname}")
+
+
 def test_config_from_file(net_connect, commands, expected_responses):
     """
     Test sending configuration commands from a file
@@ -92,6 +107,9 @@ def test_config_from_file(net_connect, commands, expected_responses):
         assert expected_responses["file_check_cmd"] in config_commands_output
     else:
         print("Skipping test (no file specified)...")
+
+    if "nokia_sros" in net_connect.device_type:
+        net_connect.save_config()
 
 
 def test_disconnect(net_connect, commands, expected_responses):

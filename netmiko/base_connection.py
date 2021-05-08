@@ -17,20 +17,25 @@ from threading import Lock
 
 import paramiko
 import serial
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from netmiko import log
 from netmiko.netmiko_globals import MAX_BUFFER, BACKSPACE_CHAR
 from netmiko.ssh_exception import (
     NetmikoTimeoutException,
     NetmikoAuthenticationException,
+    ConfigInvalidException,
 )
 from netmiko.utilities import (
     write_bytes,
     check_serial_port,
     get_structured_data,
     get_structured_data_genie,
+    get_structured_data_ttp,
+    run_ttp_template,
     select_cmd_verify,
 )
+from netmiko.utilities import m_exec_time  # noqa
 
 
 class BaseConnection(object):
@@ -62,22 +67,30 @@ class BaseConnection(object):
         alt_host_keys=False,
         alt_key_file="",
         ssh_config_file=None,
-        timeout=100,
-        session_timeout=60,
-        auth_timeout=None,
-        blocking_timeout=20,
-        banner_timeout=15,
+        #
+        # Connect timeouts
+        # ssh-connect --> TCP conn (conn_timeout) --> SSH-banner (banner_timeout)
+        #       --> Auth response (auth_timeout)
+        conn_timeout=5,
+        auth_timeout=None,  # Timeout to wait for authentication response
+        banner_timeout=15,  # Timeout to wait for the banner to be presented (post TCP-connect)
+        # Other timeouts
+        blocking_timeout=20,  # Read blocking timeout
+        timeout=100,  # TCP connect timeout | overloaded to read-loop timeout
+        session_timeout=60,  # Used for locking/sharing the connection
         keepalive=0,
         default_enter=None,
         response_return=None,
         serial_settings=None,
         fast_cli=False,
+        _legacy_mode=True,
         session_log=None,
         session_log_record_writes=False,
         session_log_file_mode="write",
         allow_auto_change=False,
         encoding="ascii",
         sock=None,
+        auto_connect=True,
     ):
         """
         Initialize attributes for establishing connection to target device.
@@ -204,8 +217,13 @@ class BaseConnection(object):
                 argument. Value of `None` indicates to use function `cmd_verify` argument.
         :type global_cmd_verify: bool|None
 
+        :param auto_connect: Control whether Netmiko automatically establishes the connection as
+                part of the object creation (default: True).
+        :type auto_connect: bool
         """
         self.remote_conn = None
+        # Does the platform support a configuration mode
+        self._config_mode = True
 
         self.TELNET_RETURN = "\r\n"
         if default_enter is None:
@@ -237,11 +255,12 @@ class BaseConnection(object):
         self.device_type = device_type
         self.ansi_escape_codes = False
         self.verbose = verbose
-        self.timeout = timeout
         self.auth_timeout = auth_timeout
         self.banner_timeout = banner_timeout
-        self.session_timeout = session_timeout
         self.blocking_timeout = blocking_timeout
+        self.conn_timeout = conn_timeout
+        self.session_timeout = session_timeout
+        self.timeout = timeout
         self.keepalive = keepalive
         self.allow_auto_change = allow_auto_change
         self.encoding = encoding
@@ -286,6 +305,7 @@ class BaseConnection(object):
             self.serial_settings.update({"port": comm_port})
 
         self.fast_cli = fast_cli
+        self._legacy_mode = _legacy_mode
         self.global_delay_factor = global_delay_factor
         self.global_cmd_verify = global_cmd_verify
         if self.fast_cli and self.global_delay_factor == 1:
@@ -312,7 +332,9 @@ class BaseConnection(object):
 
             # Options for SSH host_keys
             self.use_keys = use_keys
-            self.key_file = key_file
+            self.key_file = (
+                path.abspath(path.expanduser(key_file)) if key_file else None
+            )
             self.pkey = pkey
             self.passphrase = passphrase
             self.allow_agent = allow_agent
@@ -324,7 +346,8 @@ class BaseConnection(object):
             self.ssh_config_file = ssh_config_file
 
         # Establish the remote connection
-        self._open()
+        if auto_connect:
+            self._open()
 
     def _open(self):
         """Decouple connection creation from __init__ for mocking."""
@@ -600,6 +623,10 @@ class BaseConnection(object):
         if delay_factor == 1 and max_loops == 150:
             max_loops = int(self.timeout / loop_delay)
 
+        if delay_factor < 1:
+            if not self._legacy_mode and self.fast_cli:
+                delay_factor = 1
+
         channel_data = ""
         i = 0
         while i <= max_loops:
@@ -689,6 +716,11 @@ class BaseConnection(object):
         (default: 20)
         """
         delay_factor = self.select_delay_factor(delay_factor)
+
+        if delay_factor < 1:
+            if not self._legacy_mode and self.fast_cli:
+                delay_factor = 1
+
         time.sleep(1 * delay_factor)
 
         output = ""
@@ -701,14 +733,16 @@ class BaseConnection(object):
 
                 # Search for username pattern / send username
                 if re.search(username_pattern, output, flags=re.I):
-                    self.write_channel(self.username + self.TELNET_RETURN)
+                    # Sometimes username/password must be terminated with "\r" and not "\r\n"
+                    self.write_channel(self.username + "\r")
                     time.sleep(1 * delay_factor)
                     output = self.read_channel()
                     return_msg += output
 
                 # Search for password pattern / send password
                 if re.search(pwd_pattern, output, flags=re.I):
-                    self.write_channel(self.password + self.TELNET_RETURN)
+                    # Sometimes username/password must be terminated with "\r" and not "\r\n"
+                    self.write_channel(self.password + "\r")
                     time.sleep(0.5 * delay_factor)
                     output = self.read_channel()
                     return_msg += output
@@ -774,8 +808,8 @@ class BaseConnection(object):
         """
         self._test_channel_read()
         self.set_base_prompt()
-        self.disable_paging()
         self.set_terminal_width()
+        self.disable_paging()
 
         # Clear the read buffer
         time.sleep(0.3 * self.global_delay_factor)
@@ -840,7 +874,7 @@ class BaseConnection(object):
             "key_filename": self.key_file,
             "pkey": self.pkey,
             "passphrase": self.passphrase,
-            "timeout": self.timeout,
+            "timeout": self.conn_timeout,
             "auth_timeout": self.auth_timeout,
             "banner_timeout": self.banner_timeout,
             "sock": self.sock,
@@ -897,19 +931,53 @@ class BaseConnection(object):
             # initiate SSH connection
             try:
                 self.remote_conn_pre.connect(**ssh_connect_params)
-            except socket.error:
+            except socket.error as conn_error:
                 self.paramiko_cleanup()
-                msg = "Connection to device timed-out: {device_type} {ip}:{port}".format(
-                    device_type=self.device_type, ip=self.host, port=self.port
-                )
+                msg = f"""TCP connection to device failed.
+
+Common causes of this problem are:
+1. Incorrect hostname or IP address.
+2. Wrong TCP port.
+3. Intermediate firewall blocking access.
+
+Device settings: {self.device_type} {self.host}:{self.port}
+
+"""
+
+                # Handle DNS failures separately
+                if "Name or service not known" in str(conn_error):
+                    msg = (
+                        f"DNS failure--the hostname you provided was not resolvable "
+                        f"in DNS: {self.host}:{self.port}"
+                    )
+
+                msg = msg.lstrip()
                 raise NetmikoTimeoutException(msg)
             except paramiko.ssh_exception.AuthenticationException as auth_err:
                 self.paramiko_cleanup()
-                msg = "Authentication failure: unable to connect {device_type} {ip}:{port}".format(
-                    device_type=self.device_type, ip=self.host, port=self.port
-                )
+                msg = f"""Authentication to device failed.
+
+Common causes of this problem are:
+1. Invalid username and password
+2. Incorrect SSH-key file
+3. Connecting to the wrong device
+
+Device settings: {self.device_type} {self.host}:{self.port}
+
+"""
+
                 msg += self.RETURN + str(auth_err)
                 raise NetmikoAuthenticationException(msg)
+            except paramiko.ssh_exception.SSHException as no_session_err:
+                self.paramiko_cleanup()
+                if "No existing session" in str(no_session_err):
+                    msg = (
+                        "Paramiko: 'No existing session' error: "
+                        "try increasing 'conn_timeout' to 10 seconds or larger."
+                    )
+                    raise NetmikoTimeoutException(msg)
+                else:
+                    raise
 
             if self.verbose:
                 print(f"SSH connection established to {self.host}:{self.port}")
@@ -927,6 +995,7 @@ class BaseConnection(object):
                 print("Interactive SSH session established")
         return ""
 
+    # @m_exec_time
     def _test_channel_read(self, count=40, pattern=""):
         """Try to read the channel (generally post login) verify you receive data back.
 
@@ -958,6 +1027,7 @@ class BaseConnection(object):
                 break
             else:
                 self.write_channel(self.RETURN)
+
             main_delay = _increment_delay(main_delay)
             time.sleep(main_delay)
             i += 1
@@ -992,7 +1062,7 @@ class BaseConnection(object):
         :type delay_factor: int
         """
         if self.fast_cli:
-            if delay_factor <= self.global_delay_factor:
+            if delay_factor and delay_factor <= self.global_delay_factor:
                 return delay_factor
             else:
                 return self.global_delay_factor
@@ -1006,7 +1076,9 @@ class BaseConnection(object):
         """Handler for devices like WLC, Extreme ERS that throw up characters prior to login."""
         pass
 
-    def disable_paging(self, command="terminal length 0", delay_factor=1):
+    def disable_paging(
+        self, command="terminal length 0", delay_factor=1, cmd_verify=True, pattern=None
+    ):
         """Disable paging default to a Cisco CLI method.
 
         :param command: Device command to disable pagination of output
@@ -1016,19 +1088,24 @@ class BaseConnection(object):
         :type delay_factor: int
         """
         delay_factor = self.select_delay_factor(delay_factor)
-        time.sleep(delay_factor * 0.1)
-        self.clear_buffer()
         command = self.normalize_cmd(command)
         log.debug("In disable_paging")
         log.debug(f"Command: {command}")
         self.write_channel(command)
-        # Do not use command_verify here as still in session_preparation stage.
-        output = self.read_until_prompt()
+        # Make sure you read until you detect the command echo (avoid getting out of sync)
+        if cmd_verify and self.global_cmd_verify is not False:
+            output = self.read_until_pattern(pattern=re.escape(command.strip()))
+        elif pattern:
+            output = self.read_until_pattern(pattern=pattern)
+        else:
+            output = self.read_until_prompt()
         log.debug(f"{output}")
         log.debug("Exiting disable_paging")
         return output
 
-    def set_terminal_width(self, command="", delay_factor=1):
+    def set_terminal_width(
+        self, command="", delay_factor=1, cmd_verify=False, pattern=None
+    ):
         """CLI terminals try to automatically adjust the line based on the width of the terminal.
         This causes the output to get distorted when accessed programmatically.
 
@@ -1045,10 +1122,21 @@ class BaseConnection(object):
         delay_factor = self.select_delay_factor(delay_factor)
         command = self.normalize_cmd(command)
         self.write_channel(command)
-        # Do not use command_verify here as still in session_preparation stage.
-        output = self.read_until_prompt()
+        # Avoid cmd_verify here as terminal width must be set before doing cmd_verify
+        if cmd_verify and self.global_cmd_verify is not False:
+            output = self.read_until_pattern(pattern=re.escape(command.strip()))
+        elif pattern:
+            output = self.read_until_pattern(pattern=pattern)
+        else:
+            output = self.read_until_prompt()
         return output
 
+    # Retry by sleeping .33 and then double sleep until 5 attempts (.33, .66, 1.32, etc)
+    @retry(
+        wait=wait_exponential(multiplier=0.33, min=0, max=5),
+        stop=stop_after_attempt(5),
+        reraise=True,
+    )
     def set_base_prompt(
         self, pri_prompt_terminator="#", alt_prompt_terminator=">", delay_factor=1
     ):
@@ -1091,16 +1179,14 @@ class BaseConnection(object):
         time.sleep(sleep_time)
 
         # Initial attempt to get prompt
-        prompt = self.read_channel()
+        prompt = self.read_channel().strip()
 
         # Check if the only thing you received was a newline
         count = 0
-        prompt = prompt.strip()
         while count <= 12 and not prompt:
             prompt = self.read_channel().strip()
             if not prompt:
                 self.write_channel(self.RETURN)
-                # log.debug(f"find_prompt sleep time: {sleep_time}")
                 time.sleep(sleep_time)
                 if sleep_time <= 3:
                     # Double the sleep_time when it is small
@@ -1145,6 +1231,8 @@ class BaseConnection(object):
         normalize=True,
         use_textfsm=False,
         textfsm_template=None,
+        use_ttp=False,
+        ttp_template=None,
         use_genie=False,
         cmd_verify=False,
         cmd_echo=None,
@@ -1178,6 +1266,13 @@ class BaseConnection(object):
             path, relative path, or name of file in current directory. (default: None).
         :type textfsm_template: str
 
+        :param use_ttp: Process command output through TTP template (default: False).
+        :type use_ttp: bool
+
+        :param ttp_template: Name of template to parse output with; can be fully qualified
+            path, relative path, or name of file in current directory. (default: None).
+        :type ttp_template: str
+
         :param use_genie: Process command output through PyATS/Genie parser (default: False).
         :type use_genie: bool
 
@@ -1187,16 +1282,16 @@ class BaseConnection(object):
         :param cmd_echo: Deprecated (use cmd_verify instead)
         :type cmd_echo: bool
         """
-        # For compatibility remove cmd_echo in Netmiko 4.x.x
+
+        # For compatibility; remove cmd_echo in Netmiko 4.x.x
         if cmd_echo is not None:
             cmd_verify = cmd_echo
 
         output = ""
         delay_factor = self.select_delay_factor(delay_factor)
-        self.clear_buffer()
+
         if normalize:
             command_string = self.normalize_cmd(command_string)
-
         self.write_channel(command_string)
 
         cmd = command_string.strip()
@@ -1228,7 +1323,7 @@ class BaseConnection(object):
             strip_prompt=strip_prompt,
         )
 
-        # If both TextFSM and Genie are set, try TextFSM then Genie
+        # If both TextFSM, TTP and Genie are set, try TextFSM then TTP then Genie
         if use_textfsm:
             structured_output = get_structured_data(
                 output,
@@ -1236,6 +1331,11 @@ class BaseConnection(object):
                 command=command_string.strip(),
                 template=textfsm_template,
             )
+            # If we have structured data; return it.
+            if not isinstance(structured_output, str):
+                return structured_output
+        if use_ttp:
+            structured_output = get_structured_data_ttp(output, template=ttp_template)
             # If we have structured data; return it.
             if not isinstance(structured_output, str):
                 return structured_output
@@ -1303,6 +1403,8 @@ class BaseConnection(object):
         normalize=True,
         use_textfsm=False,
         textfsm_template=None,
+        use_ttp=False,
+        ttp_template=None,
         use_genie=False,
         cmd_verify=True,
     ):
@@ -1340,12 +1442,20 @@ class BaseConnection(object):
         :param textfsm_template: Name of template to parse output with; can be fully qualified
             path, relative path, or name of file in current directory. (default: None).
 
+        :param use_ttp: Process command output through TTP template (default: False).
+        :type use_ttp: bool
+
+        :param ttp_template: Name of template to parse output with; can be fully qualified
+            path, relative path, or name of file in current directory. (default: None).
+        :type ttp_template: str
+
         :param use_genie: Process command output through PyATS/Genie parser (default: False).
         :type normalize: bool
 
         :param cmd_verify: Verify command echo before proceeding (default: True).
         :type cmd_verify: bool
         """
+
         # Time to delay in each read loop
         loop_delay = 0.2
 
@@ -1421,7 +1531,7 @@ class BaseConnection(object):
             new_data = self.read_channel()
         else:  # nobreak
             raise IOError(
-                "Search pattern never detected in send_command_expect: {}".format(
+                "Search pattern never detected in send_command: {}".format(
                     search_pattern
                 )
             )
@@ -1433,7 +1543,7 @@ class BaseConnection(object):
             strip_prompt=strip_prompt,
         )
 
-        # If both TextFSM and Genie are set, try TextFSM then Genie
+        # If both TextFSM, TTP and Genie are set, try TextFSM then TTP then Genie
         if use_textfsm:
             structured_output = get_structured_data(
                 output,
@@ -1441,6 +1551,11 @@ class BaseConnection(object):
                 command=command_string.strip(),
                 template=textfsm_template,
             )
+            # If we have structured data; return it.
+            if not isinstance(structured_output, str):
+                return structured_output
+        if use_ttp:
+            structured_output = get_structured_data_ttp(output, template=ttp_template)
             # If we have structured data; return it.
             if not isinstance(structured_output, str):
                 return structured_output
@@ -1538,13 +1653,18 @@ class BaseConnection(object):
         output = self.read_until_prompt()
         return check_string in output
 
-    def enable(self, cmd="", pattern="ssword", re_flags=re.IGNORECASE):
+    def enable(
+        self, cmd="", pattern="ssword", enable_pattern=None, re_flags=re.IGNORECASE
+    ):
         """Enter enable mode.
 
         :param cmd: Device command to enter enable mode
         :type cmd: str
 
         :param pattern: pattern to search for indicating device is waiting for password
+        :type pattern: str
+
+        :param enable_pattern: pattern indicating you have entered enable mode
         :type pattern: str
 
         :param re_flags: Regular expression flags used in conjunction with pattern
@@ -1555,17 +1675,35 @@ class BaseConnection(object):
             "Failed to enter enable mode. Please ensure you pass "
             "the 'secret' argument to ConnectHandler."
         )
+
+        # Check if in enable mode
         if not self.check_enable_mode():
+            # Send "enable" mode command
             self.write_channel(self.normalize_cmd(cmd))
             try:
-                output += self.read_until_prompt_or_pattern(
-                    pattern=pattern, re_flags=re_flags
-                )
-                self.write_channel(self.normalize_cmd(self.secret))
-                output += self.read_until_prompt()
+                # Read the command echo
+                end_data = ""
+                if self.global_cmd_verify is not False:
+                    output += self.read_until_pattern(pattern=re.escape(cmd.strip()))
+                    end_data = output.split(cmd.strip())[-1]
+
+                # Search for trailing prompt or password pattern
+                if pattern not in output and self.base_prompt not in end_data:
+                    output += self.read_until_prompt_or_pattern(
+                        pattern=pattern, re_flags=re_flags
+                    )
+                # Send the "secret" in response to password pattern
+                if re.search(pattern, output):
+                    self.write_channel(self.normalize_cmd(self.secret))
+                    output += self.read_until_prompt()
+
+                # Search for terminating pattern if defined
+                if enable_pattern and not re.search(enable_pattern, output):
+                    output += self.read_until_pattern(pattern=enable_pattern)
+                else:
+                    if not self.check_enable_mode():
+                        raise ValueError(msg)
             except NetmikoTimeoutException:
-                raise ValueError(msg)
-            if not self.check_enable_mode():
                 raise ValueError(msg)
         return output
 
@@ -1600,7 +1738,7 @@ class BaseConnection(object):
             output = self.read_until_pattern(pattern=pattern)
         return check_string in output
 
-    def config_mode(self, config_command="", pattern=""):
+    def config_mode(self, config_command="", pattern="", re_flags=0):
         """Enter into config_mode.
 
         :param config_command: Configuration command to send to the device
@@ -1608,6 +1746,9 @@ class BaseConnection(object):
 
         :param pattern: Pattern to terminate reading of channel
         :type pattern: str
+
+        :param re_flags: Regular expression flags
+        :type re_flags: RegexFlag
         """
         output = ""
         if not self.check_config_mode():
@@ -1617,8 +1758,8 @@ class BaseConnection(object):
                 output += self.read_until_pattern(
                     pattern=re.escape(config_command.strip())
                 )
-            if not re.search(pattern, output, flags=re.M):
-                output += self.read_until_pattern(pattern=pattern)
+            if not re.search(pattern, output, flags=re_flags):
+                output += self.read_until_pattern(pattern=pattern, re_flags=re_flags)
             if not self.check_config_mode():
                 raise ValueError("Failed to enter configuration mode.")
         return output
@@ -1676,6 +1817,8 @@ class BaseConnection(object):
         config_mode_command=None,
         cmd_verify=True,
         enter_config_mode=True,
+        error_pattern="",
+        terminator=r"#",
     ):
         """
         Send configuration commands down the SSH channel.
@@ -1712,6 +1855,13 @@ class BaseConnection(object):
         :param enter_config_mode: Do you enter config mode before sending config commands
         :type exit_config_mode: bool
 
+        :param error_pattern: Regular expression pattern to detect config errors in the
+        output.
+        :type error_pattern: str
+
+        :param terminator: Regular expression pattern to use as an alternate terminator in certain
+        situations.
+        :type terminator: str
         """
         delay_factor = self.select_delay_factor(delay_factor)
         if config_commands is None:
@@ -1728,21 +1878,35 @@ class BaseConnection(object):
             cfg_mode_args = (config_mode_command,) if config_mode_command else tuple()
             output += self.config_mode(*cfg_mode_args)
 
-        if self.fast_cli:
+        # If error_pattern is perform output gathering line by line and not fast_cli mode.
+        if self.fast_cli and self._legacy_mode and not error_pattern:
             for cmd in config_commands:
                 self.write_channel(self.normalize_cmd(cmd))
             # Gather output
             output += self._read_channel_timing(
                 delay_factor=delay_factor, max_loops=max_loops
             )
+
         elif not cmd_verify:
             for cmd in config_commands:
                 self.write_channel(self.normalize_cmd(cmd))
                 time.sleep(delay_factor * 0.05)
-            # Gather output
-            output += self._read_channel_timing(
-                delay_factor=delay_factor, max_loops=max_loops
-            )
+
+                # Gather the output incrementally due to error_pattern requirements
+                if error_pattern:
+                    output += self._read_channel_timing(
+                        delay_factor=delay_factor, max_loops=max_loops
+                    )
+                    if re.search(error_pattern, output, flags=re.M):
+                        msg = f"Invalid input detected at command: {cmd}"
+                        raise ConfigInvalidException(msg)
+
+            # Standard output gathering (no error_pattern)
+            if not error_pattern:
+                output += self._read_channel_timing(
+                    delay_factor=delay_factor, max_loops=max_loops
+                )
+
         else:
             for cmd in config_commands:
                 self.write_channel(self.normalize_cmd(cmd))
@@ -1752,13 +1916,18 @@ class BaseConnection(object):
                 output += new_output
 
                 # We might capture next prompt in the original read
-                pattern = f"(?:{re.escape(self.base_prompt)}|#)"
+                pattern = f"(?:{re.escape(self.base_prompt)}|{terminator})"
                 if not re.search(pattern, new_output):
                     # Make sure trailing prompt comes back (after command)
                     # NX-OS has fast-buffering problem where it immediately echoes command
                     # Even though the device hasn't caught up with processing command.
                     new_output = self.read_until_pattern(pattern=pattern)
                     output += new_output
+
+                if error_pattern:
+                    if re.search(error_pattern, output, flags=re.M):
+                        msg = f"Invalid input detected at command: {cmd}"
+                        raise ConfigInvalidException(msg)
 
         if exit_config_mode:
             output += self.exit_config_mode()
@@ -1797,8 +1966,6 @@ class BaseConnection(object):
         :param string_buffer: The string to be processed to remove ANSI escape codes
         :type string_buffer: str
         """  # noqa
-        log.debug("In strip_ansi_escape_codes")
-        log.debug(f"repr = {repr(string_buffer)}")
 
         code_position_cursor = chr(27) + r"\[\d+;\d+H"
         code_show_cursor = chr(27) + r"\[\?25h"
@@ -1807,19 +1974,19 @@ class BaseConnection(object):
         code_erase_line = chr(27) + r"\[2K"
         code_erase_start_line = chr(27) + r"\[K"
         code_enable_scroll = chr(27) + r"\[\d+;\d+r"
-        code_form_feed = chr(27) + r"\[1L"
+        code_insert_line = chr(27) + r"\[(\d+)L"
         code_carriage_return = chr(27) + r"\[1M"
         code_disable_line_wrapping = chr(27) + r"\[\?7l"
         code_reset_mode_screen_options = chr(27) + r"\[\?\d+l"
         code_reset_graphics_mode = chr(27) + r"\[00m"
         code_erase_display = chr(27) + r"\[2J"
+        code_erase_display_0 = chr(27) + r"\[J"
         code_graphics_mode = chr(27) + r"\[\d\d;\d\dm"
         code_graphics_mode2 = chr(27) + r"\[\d\d;\d\d;\d\dm"
         code_graphics_mode3 = chr(27) + r"\[(3|4)\dm"
         code_graphics_mode4 = chr(27) + r"\[(9|10)[0-7]m"
         code_get_cursor_position = chr(27) + r"\[6n"
         code_cursor_position = chr(27) + r"\[m"
-        code_erase_display = chr(27) + r"\[J"
         code_attrs_off = chr(27) + r"\[0m"
         code_reverse = chr(27) + r"\[7m"
         code_cursor_left = chr(27) + r"\[\d+D"
@@ -1830,7 +1997,6 @@ class BaseConnection(object):
             code_erase_line,
             code_enable_scroll,
             code_erase_start_line,
-            code_form_feed,
             code_carriage_return,
             code_disable_line_wrapping,
             code_erase_line_end,
@@ -1844,6 +2010,7 @@ class BaseConnection(object):
             code_get_cursor_position,
             code_cursor_position,
             code_erase_display,
+            code_erase_display_0,
             code_attrs_off,
             code_reverse,
             code_cursor_left,
@@ -1856,9 +2023,12 @@ class BaseConnection(object):
         # CODE_NEXT_LINE must substitute with return
         output = re.sub(code_next_line, self.RETURN, output)
 
-        log.debug("Stripping ANSI escape codes")
-        log.debug(f"new_output = {output}")
-        log.debug(f"repr = {repr(output)}")
+        # Aruba and ProCurve switches can use code_insert_line for <enter>
+        insert_line_match = re.search(code_insert_line, output)
+        if insert_line_match:
+            # Substitute each insert_line with a new <enter>
+            count = int(insert_line_match.group(1))
+            output = re.sub(code_insert_line, count * self.RETURN, output)
 
         return output
 
@@ -1900,9 +2070,9 @@ class BaseConnection(object):
     def open_session_log(self, filename, mode="write"):
         """Open the session_log file."""
         if mode == "append":
-            self.session_log = open(filename, mode="a")
+            self.session_log = open(filename, mode="a", encoding=self.encoding)
         else:
-            self.session_log = open(filename, mode="w")
+            self.session_log = open(filename, mode="w", encoding=self.encoding)
         self._session_log_close = True
 
     def close_session_log(self):
@@ -1910,6 +2080,41 @@ class BaseConnection(object):
         if self.session_log is not None and self._session_log_close:
             self.session_log.close()
             self.session_log = None
+
+    def run_ttp(self, template, res_kwargs={}, **kwargs):
+        """
+        Run TTP template parsing by using input parameters to collect
+        devices output.
+
+        :param template: template content, OS path to template or reference
+            to template within TTP templates collection in
+            ttp://path/to/template.txt format
+        :type template: str
+
+        :param res_kwargs: ``**res_kwargs`` arguments to pass to TTP result method
+        :type res_kwargs: dict
+
+        :param kwargs: any other ``**kwargs`` to use for TTP object instantiation
+        :type kwargs: dict
+
+        TTP template must have inputs defined together with below parameters.
+
+        :param method: name of Netmiko connection object method to call, default ``send_command``
+        :type method: str
+
+        :param kwargs: Netmiko connection object method arguments
+        :type kwargs: dict
+
+        :param commands: list of commands to collect
+        :type commands: list
+
+        Inputs' load could be of one of the supported formats and controlled by input's ``load``
+        attribute, supported values - python, yaml or json. For each input output collected
+        from device and parsed accordingly.
+        """
+        return run_ttp_template(
+            connection=self, template=template, res_kwargs=res_kwargs, **kwargs
+        )
 
 
 class TelnetConnection(BaseConnection):

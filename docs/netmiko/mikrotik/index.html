@@ -175,6 +175,10 @@ __all__ = [&#34;MikrotikRouterOsSSH&#34;, &#34;MikrotikSwitchOsSSH&#34;]</code><
             (default: None). Global attribute takes precedence over function `cmd_verify`
             argument. Value of `None` indicates to use function `cmd_verify` argument.
     :type global_cmd_verify: bool|None
+
+    :param auto_connect: Control whether Netmiko automatically establishes the connection as
+            part of the object creation (default: True).
+    :type auto_connect: bool
 </code></pre></section>
 <details class="source">
 <summary>Source code</summary>
@@ -217,6 +221,7 @@ __all__ = [&#34;MikrotikRouterOsSSH&#34;, &#34;MikrotikSwitchOsSSH&#34;]</code><
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.read_until_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_pattern">read_until_pattern</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.read_until_prompt" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt">read_until_prompt</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.read_until_prompt_or_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt_or_pattern">read_until_prompt_or_pattern</a></code></li>
+<li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.run_ttp" href="../base_connection.html#netmiko.base_connection.BaseConnection.run_ttp">run_ttp</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.save_config" href="mikrotik_ssh.html#netmiko.mikrotik.mikrotik_ssh.MikrotikBase.save_config">save_config</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.select_delay_factor" href="../base_connection.html#netmiko.base_connection.BaseConnection.select_delay_factor">select_delay_factor</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.send_command" href="../base_connection.html#netmiko.base_connection.BaseConnection.send_command">send_command</a></code></li>
@@ -369,6 +374,10 @@ __all__ = [&#34;MikrotikRouterOsSSH&#34;, &#34;MikrotikSwitchOsSSH&#34;]</code><
             (default: None). Global attribute takes precedence over function `cmd_verify`
             argument. Value of `None` indicates to use function `cmd_verify` argument.
     :type global_cmd_verify: bool|None
+
+    :param auto_connect: Control whether Netmiko automatically establishes the connection as
+            part of the object creation (default: True).
+    :type auto_connect: bool
 </code></pre></section>
 <details class="source">
 <summary>Source code</summary>
@@ -411,6 +420,7 @@ __all__ = [&#34;MikrotikRouterOsSSH&#34;, &#34;MikrotikSwitchOsSSH&#34;]</code><
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.read_until_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_pattern">read_until_pattern</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.read_until_prompt" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt">read_until_prompt</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.read_until_prompt_or_pattern" href="../base_connection.html#netmiko.base_connection.BaseConnection.read_until_prompt_or_pattern">read_until_prompt_or_pattern</a></code></li>
+<li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.run_ttp" href="../base_connection.html#netmiko.base_connection.BaseConnection.run_ttp">run_ttp</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.save_config" href="mikrotik_ssh.html#netmiko.mikrotik.mikrotik_ssh.MikrotikBase.save_config">save_config</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.select_delay_factor" href="../base_connection.html#netmiko.base_connection.BaseConnection.select_delay_factor">select_delay_factor</a></code></li>
 <li><code><a title="netmiko.mikrotik.mikrotik_ssh.MikrotikBase.send_command" href="../base_connection.html#netmiko.base_connection.BaseConnection.send_command">send_command</a></code></li>

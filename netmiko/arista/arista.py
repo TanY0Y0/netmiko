@@ -1,21 +1,34 @@
-import time
+import re
 from netmiko.cisco_base_connection import CiscoSSHConnection
 from netmiko.cisco_base_connection import CiscoFileTransfer
-from netmiko import log
 
 
 class AristaBase(CiscoSSHConnection):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("fast_cli", True)
+        kwargs.setdefault("_legacy_mode", False)
+        return super().__init__(*args, **kwargs)
+
     def session_preparation(self):
         """Prepare the session after the connection has been established."""
-        self._test_channel_read(pattern=r"[>#]")
+        cmd = "terminal width 511"
+        # Arista will echo immediately and then when the device really responds (like NX-OS)
+        self.set_terminal_width(command=cmd, pattern=r"Width set to")
+        self.disable_paging(cmd_verify=False, pattern=r"Pagination disabled")
         self.set_base_prompt()
-        self.disable_paging()
-        self.set_terminal_width(command="terminal width 511")
-        # Clear the read buffer
-        time.sleep(0.3 * self.global_delay_factor)
-        self.clear_buffer()
 
-    def check_config_mode(self, check_string=")#", pattern=""):
+    def enable(
+        self,
+        cmd="enable",
+        pattern="ssword",
+        enable_pattern=r"\#",
+        re_flags=re.IGNORECASE,
+    ):
+        return super().enable(
+            cmd=cmd, pattern=pattern, enable_pattern=enable_pattern, re_flags=re_flags
+        )
+
+    def check_config_mode(self, check_string=")#", pattern=r"[>\#]"):
         """
         Checks if the device is in configuration mode or not.
 
@@ -24,14 +37,25 @@ class AristaBase(CiscoSSHConnection):
 
         Can also be (s2)
         """
-        log.debug(f"pattern: {pattern}")
         self.write_channel(self.RETURN)
         output = self.read_until_pattern(pattern=pattern)
-        log.debug(f"check_config_mode: {repr(output)}")
         output = output.replace("(s1)", "")
         output = output.replace("(s2)", "")
-        log.debug(f"check_config_mode: {repr(output)}")
         return check_string in output
+
+    def config_mode(self, config_command="configure terminal", pattern="", re_flags=0):
+        """Force arista to read pattern all the way to prompt on the next line."""
+
+        if not re_flags:
+            re_flags = re.DOTALL
+        check_string = re.escape(")#")
+
+        if not pattern:
+            pattern = re.escape(self.base_prompt[:16])
+            pattern = f"{pattern}.*{check_string}"
+        return super().config_mode(
+            config_command=config_command, pattern=pattern, re_flags=re_flags
+        )
 
     def _enter_shell(self):
         """Enter the Bourne Shell."""
