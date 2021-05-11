@@ -22,7 +22,7 @@ class YotcBase(CiscoBaseConnection):
         """
         self.disable_paging("command max-lines 1000")
         prompt = self.find_prompt()
-        more_str_re = " --More-- " + '\b'*10 + ' '*10 + '\b'*10 + '\n?'
+        more_str_re = " --More-- " + "\b" * 10 + " " * 10 + "\b" * 10 + "\n?"
         buffer = self.send_command_timing(
             command_string, cmd_echo=cmd_echo, use_textfsm=False, **kwargs
         )
