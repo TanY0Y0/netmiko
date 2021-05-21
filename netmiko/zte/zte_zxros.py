@@ -19,7 +19,7 @@ class ZteZxrosBase(CiscoBaseConnection):
         """
         return super().check_config_mode(check_string=check_string, pattern=pattern)
 
-    def save_config(self, cmd="do write", confirm=False, confirm_response=""):
+    def save_config(self, cmd="write", confirm=False, confirm_response=""):
         """Saves Config Using Copy Run Start"""
         return super().save_config(
             cmd=cmd, confirm=confirm, confirm_response=confirm_response
